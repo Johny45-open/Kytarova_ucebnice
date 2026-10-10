@@ -701,13 +701,11 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                       ...List.generate(5, (fIdx) {
                         final fret = fIdx + 1;
                         final isPressed = _logic.fingerPositions[sIdx] == fret;
-                        return OutlinedButton(
-                          style: OutlinedButton.styleFrom(
-                            backgroundColor: isPressed
-                                ? Theme.of(context).colorScheme.primaryContainer
-                                : null,
-                          ),
-                          onPressed: () {
+                        
+                        return Semantics(
+                          label: 'Struna ${_logic.stringNames[sIdx]}, pražec $fret, ${isPressed ? "vybráno" : "nevybráno"}',
+                          button: true,
+                          onTap: () {
                             setState(() {
                               _logic.setPosition(
                                 sIdx,
@@ -717,7 +715,37 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                               );
                             });
                           },
-                          child: Text('$fret'),
+                          child: InkWell(
+                            onTap: () {
+                              setState(() {
+                                _logic.setPosition(
+                                  sIdx,
+                                  (_logic.fingerPositions[sIdx] == fret)
+                                      ? -1
+                                      : fret,
+                                );
+                              });
+                            },
+                            child: Container(
+                              height: 40,
+                              alignment: Alignment.center,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Text('$fret'),
+                                  if (isPressed)
+                                    Container(
+                                      width: 12,
+                                      height: 12,
+                                      decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: Theme.of(context).colorScheme.primary,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
                         );
                       }),
                     ],
