@@ -1,0 +1,33 @@
+name: flutter_midi
+description: A FLutter Plugin to Play midi on iOS, Android, and Windows.
+version: 1.1.0
+homepage: https://github.com/rodydavis/flutter_midi
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=1.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_web_plugins:
+    sdk: flutter
+  ffi: ^2.0.0
+  js: ^0.6.3
+  path_provider: ^2.0.1
+  plugin_platform_interface: ^2.0.0
+  tonic: ^0.2.3
+
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: FlutterMidiPlugin
+      android:
+        package: com.appleeducate.fluttermidi
+        pluginClass: FlutterMidiPlugin
+      windows:
+        dartPluginClass: FlutterMidiWindowsPlugin
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
