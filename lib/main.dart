@@ -1,15 +1,19 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_midi/flutter_midi.dart';
+import 'package:flutter_midi/flutter_midi_windows.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 
 void main() {
   // Musí být první: inicializuje ServicesBinding/BinaryMessenger,
   // jinak jakýkoliv MethodChannel (vč. auto-registrace dartPluginClass
   // FlutterMidiWindowsPlugin) padne na "Null check operator used on a null value".
   WidgetsFlutterBinding.ensureInitialized();
-  // POZOR: FlutterMidiWindowsPlugin.registerWith() se NEVOLÁ ručně.
   // Windows plugin je deklarován jako dartPluginClass a registruje ho
-  // automaticky Flutter tooling až po inicializaci bindingu.
+  // automaticky Flutter tooling. Pro jistotu se na Windows ještě
+  // explicitně registruje v _setupMidi() (opakovaná registrace nevadí).
   runApp(const KytarovaUcebniceApp());
 }
 
@@ -259,6 +263,10 @@ class ChordEditorPage extends StatefulWidget {
 
 class _ChordEditorPageState extends State<ChordEditorPage> {
   final _flutterMidi = FlutterMidi();
+  late final FlutterTts _tts;
+  bool _ttsReady = false;
+  bool _midiReady = false;
+  String? _midiError;
   final List<int> _fingerPositions = List.filled(6, -1);
   final List<String> _stringNames = ['E tlusté', 'A', 'D', 'G', 'H', 'e tenké'];
   final List<int> _midiBaseNotes = [40, 45, 50, 55, 59, 64];
@@ -266,16 +274,116 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   @override
   void initState() {
     super.initState();
-    _setupMidi();
+    _tts = FlutterTts();
+    _initTts();
+    // MIDI start až po prvním framu: _setupMidi sahá na stav a dřív
+    // zobrazoval SnackBar během push-transition, což na Windows padalo
+    // na "Null check operator used on a null value" ve frameworku.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _setupMidi();
+    });
+  }
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _initTts() async {
+    try {
+      await _tts.setVolume(1.0);
+      await _tts.setSpeechRate(0.5);
+      await _tts.setPitch(1.0);
+      await _tts.awaitSpeakCompletion(true);
+      
+      // Na Windows isLanguageAvailable neexistuje, zkusíme rovnou setLanguage
+      if (Platform.isWindows) {
+        await _tts.setLanguage('cs-CZ');
+      } else {
+        try {
+          final available = await _tts.isLanguageAvailable('cs-CZ');
+          if (available) {
+            await _tts.setLanguage('cs-CZ');
+          } else {
+            debugPrint('TTS: cs-CZ není dostupné, nechávám výchozí hlas.');
+          }
+        } catch (e) {
+          debugPrint('TTS jazyk nelze ověřit: $e');
+        }
+      }
+      _ttsReady = true;
+    } catch (e) {
+      debugPrint('TTS nenastaveno: $e');
+      _ttsReady = false;
+    }
+  }
+
+  Future<void> _speakDescription(String text) async {
+    if (!_ttsReady) {
+      await _initTts();
+      if (!_ttsReady) return;
+    }
+    try {
+      await _tts.stop();
+      await _tts.speak(text);
+    } catch (e) {
+      debugPrint('TTS speak selhalo: $e');
+    }
+  }
+
+  /// Na Windows volá winmm FFI napřímo (MethodChannel tam nemá nativní
+  /// protistranu a končil by vždy MissingPluginException). Na ostatních
+  /// platformách jde přes MethodChannel + sf2 soubor.
+  Future<String?> _midiPrepare(ByteData sf2) {
+    if (Platform.isWindows) return FlutterMidiWindowsPlugin.openOut();
+    return _flutterMidi.prepare(sf2: sf2, name: 'guitar.sf2');
+  }
+
+  Future<String?> _midiPlay(int midi) {
+    if (Platform.isWindows) return FlutterMidiWindowsPlugin.playNote(midi);
+    return _flutterMidi.playMidiNote(midi: midi);
+  }
+
+  Future<String?> _midiStop(int midi) {
+    if (Platform.isWindows) return FlutterMidiWindowsPlugin.stopNote(midi);
+    return _flutterMidi.stopMidiNote(midi: midi);
   }
 
   Future<void> _setupMidi() async {
     try {
-      ByteData byte = await rootBundle.load("assets/guitar.sf2");
-      _flutterMidi.prepare(sf2: byte, name: "guitar.sf2");
+      String? res;
+      if (Platform.isWindows) {
+        // winmm nepotřebuje sf2, stačí otevřít MIDI mapper.
+        // sf2 asset se nenačítá, aby chyba v balíčku neblokovala zvuk.
+        res = await FlutterMidiWindowsPlugin.openOut();
+      } else {
+        ByteData byte = await rootBundle.load('assets/guitar.sf2');
+        res = await _midiPrepare(byte);
+      }
+      debugPrint('MIDI prepare: $res');
+      _midiReady = (res == 'ok');
+      _midiError = _midiReady ? null : res;
+    } on MissingPluginException catch (e) {
+      _midiReady = false;
+      _midiError = 'MIDI plugin není registrován: $e';
+      debugPrint(_midiError);
     } catch (e) {
-      debugPrint("MIDI nenastaveno: $e");
+      _midiReady = false;
+      _midiError = e.toString();
+      debugPrint('MIDI nenastaveno: $e');
     }
+    // Žádný SnackBar při otevření stránky (padal framework během
+    // transition). Chyba se ukáže jako inline pruh ve stránce (viz build)
+    // a SnackBar až po explicitním tapnutí na Přehrát. Jen překreslit.
+    if (mounted) setState(() {});
+  }
+
+  /// Chyba bez strohého prefixu 'error: ' pro zobrazení uživateli.
+  String get _midiErrorText {
+    final e = _midiError;
+    if (e == null) return '';
+    return e.startsWith('error: ') ? e.substring('error: '.length) : e;
   }
 
   void _togglePosition(int sIdx, int fret) {
@@ -294,16 +402,65 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   }
 
   Future<void> _playChord() async {
+    if (!_midiReady) {
+      await _setupMidi(); // jeden pokus o zotavení
+      if (!_midiReady) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Akord nelze přehrát: ${_midiErrorText.isNotEmpty ? _midiErrorText : 'MIDI není připraveno'}')),
+        );
+        return;
+      }
+    }
+
+    if (!mounted) return;
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Přehrávám akord...'), duration: Duration(seconds: 1)),
+      const SnackBar(
+          content: Text('Přehrávám akord...'),
+          duration: Duration(seconds: 1)),
     );
 
-    for (int i = 0; i < 6; i++) {
-      int fret = _fingerPositions[i];
-      if (fret != -1) {
-        _flutterMidi.playMidiNote(midi: _midiBaseNotes[i] + fret);
-        await Future.delayed(const Duration(milliseconds: 100));
+    final List<int> played = [];
+    try {
+      for (int i = 0; i < 6; i++) {
+        int fret = _fingerPositions[i];
+        if (fret == -1) continue;
+        final midi = _midiBaseNotes[i] + fret;
+        final res = await _midiPlay(midi);
+        debugPrint('play $midi -> $res');
+        if (res == 'not_open' || (res?.startsWith('error') ?? false)) {
+          throw Exception(res);
+        }
+        played.add(midi);
+        await Future.delayed(const Duration(milliseconds: 120));
+      }
+      await Future.delayed(const Duration(milliseconds: 600));
+    } on MissingPluginException catch (e) {
+      _midiReady = false;
+      _midiError = 'MIDI plugin není registrován: $e';
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Akord nelze přehrát: $_midiError')),
+        );
+      }
+    } catch (e) {
+      _midiReady = false;
+      _midiError = e.toString();
+      if (mounted) {
+        setState(() {});
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Akord nelze přehrát: $_midiErrorText')),
+        );
+      }
+    } finally {
+      for (final m in played) {
+        try {
+          await _midiStop(m);
+        } catch (_) {}
       }
     }
   }
@@ -318,16 +475,32 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   }
 
   void _readChord() {
+    final text = _getChordDescription();
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Popis hmatu'),
-        content: Text(_getChordDescription()),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zavřít')),
-        ],
-      ),
-    );
+      builder: (dialogContext) {
+        // Automatické přečtení po získání fokusu dialogu (NVDA/TalkBack
+        // přečte obsah i tak, TTS přidá proaktivní hlas).
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _speakDescription(text));
+        return AlertDialog(
+          title: const Text('Popis hmatu'),
+          content: Text(text),
+          actions: [
+            TextButton(
+                onPressed: () => _speakDescription(text),
+                child: const Text('Přehrát popis')),
+            TextButton(onPressed: () => _tts.stop(), child: const Text('Zastavit')),
+            TextButton(
+                onPressed: () {
+                  _tts.stop();
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('Zavřít')),
+          ],
+        );
+      },
+    ).then((_) => _tts.stop());
   }
 
   void _saveChordDialog() {
@@ -375,6 +548,34 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
+            if (_midiError != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.volume_off,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onErrorContainer),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Zvuk není dostupný: $_midiErrorText',
+                            style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onErrorContainer),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             Table(
               border: TableBorder.all(color: Theme.of(context).dividerColor.withOpacity(0.5)),
               defaultVerticalAlignment: TableCellVerticalAlignment.middle,

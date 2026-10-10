@@ -1,41 +1,45 @@
-group 'com.appleeducate.fluttermidi'
-version '1.0-SNAPSHOT'
+group = "com.appleeducate.fluttermidi"
+version = "1.0-SNAPSHOT"
 
 buildscript {
     repositories {
         google()
-        jcenter()
-        maven { url "https://jitpack.io" }
-    }
-
-    dependencies {
-        classpath 'com.android.tools.build:gradle:3.2.1'
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
 rootProject.allprojects {
     repositories {
         google()
-        jcenter()
-        maven { url "https://jitpack.io" }
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
 apply plugin: 'com.android.library'
 
 android {
-    compileSdkVersion 28
+    namespace = "com.appleeducate.fluttermidi"
+    compileSdk = 36
 
     defaultConfig {
-        minSdkVersion 16
-        targetSdkVersion 28
-        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        minSdk = 24
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    lintOptions {
-        disable 'InvalidPackage'
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    lint {
+        disable += "InvalidPackage"
     }
 }
 
 dependencies {
-    implementation 'com.github.appleeducate:MidiDriver-Android-SF2:1.0'
+    implementation('com.github.appleeducate:MidiDriver-Android-SF2:1.0') {
+        exclude group: 'com.android.support'
+    }
 }
