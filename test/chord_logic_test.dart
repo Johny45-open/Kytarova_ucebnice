@@ -3,12 +3,23 @@ import 'package:kytarova_ucebnice/chord_logic.dart';
 
 void main() {
   group('ChordLogic Tests', () {
-    test('setBarre sets all strings', () {
+    test('setBarre toggles correctly', () {
       final logic = ChordLogic();
       logic.setBarre(3);
       for (int i = 0; i < 6; i++) {
         expect(logic.fingerPositions[i], 3);
       }
+      logic.setBarre(3); // Should toggle off
+      for (int i = 0; i < 6; i++) {
+        expect(logic.fingerPositions[i], -1);
+      }
+    });
+
+    test('getMidiNote calculates correctly for high frets', () {
+      final logic = ChordLogic();
+      logic.setPosition(0, 24);
+      // E tlusté (midiBase: 40) + 24 = 64
+      expect(logic.getMidiNote(0), 64);
     });
 
     test('setPosition changes one string', () {

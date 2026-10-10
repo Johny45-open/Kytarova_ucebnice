@@ -4,9 +4,11 @@ class ChordLogic {
   final List<int> midiBaseNotes = [40, 45, 50, 55, 59, 64];
 
   void setBarre(int fret) {
-    bool allSet = fingerPositions.every((p) => p == fret);
+    // Pokud jsou už všechny struny na tomto pražci, vypneme je (nastavíme na -1).
+    // Jinak nastavíme všechny struny na tento pražec.
+    bool allAlreadySet = fingerPositions.every((p) => p == fret);
     for (int i = 0; i < 6; i++) {
-      fingerPositions[i] = allSet ? -1 : fret;
+      fingerPositions[i] = allAlreadySet ? -1 : fret;
     }
   }
 

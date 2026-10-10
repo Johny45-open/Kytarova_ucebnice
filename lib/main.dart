@@ -308,6 +308,19 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   String? _midiError;
   final ChordLogic _logic = ChordLogic();
   Future<void>? _ttsInitFuture;
+  int _startFret = 1;
+
+  void _changeRange(int delta) {
+    setState(() {
+      _startFret = (_startFret + delta).clamp(1, 21);
+      // Zarovnání na začátky rozsahů (1, 6, 11, 16, 21)
+      if (_startFret > 1) {
+         _startFret = (((_startFret - 1) / 5).floor() * 5) + 1;
+      } else {
+         _startFret = 1;
+      }
+    });
+  }
 
   @override
   void initState() {
@@ -458,6 +471,41 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     setState(() {
       _logic.setBarre(fret);
     });
+  }
+
+  void _setBarreDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Vybrat barré pražec'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: GridView.builder(
+            shrinkWrap: true,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+            ),
+            itemCount: 24,
+            itemBuilder: (context, index) {
+              final fret = index + 1;
+              return TextButton(
+                onPressed: () {
+                  _setBarre(fret);
+                  Navigator.pop(context);
+                },
+                child: Text('$fret'),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Zrušit'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _playChord() async {
@@ -650,21 +698,40 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   ),
                 ),
               ),
-            // Barré ovládání
+  // Barré ovládání
             const Text('Barré:'),
+            OutlinedButton(
+              onPressed: _setBarreDialog,
+              child: const Text('Vybrat barré (1-24)'),
+            ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               children: [
                 OutlinedButton(
                   onPressed: () => _setBarre(-1),
-                  child: const Text('X'),
+                  child: const Text('Zrušit barré (X)'),
                 ),
-                ...List.generate(
-                  5,
-                  (fIdx) => OutlinedButton(
-                    onPressed: () => _setBarre(fIdx + 1),
-                    child: Text('${fIdx + 1}'),
-                  ),
+              ],
+            ),
+            const Divider(),
+            // Ovládání rozsahu
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  onPressed: _startFret > 1 ? () => _changeRange(-5) : null,
+                  icon: const Icon(Icons.chevron_left),
+                  tooltip: 'Předchozí rozsah',
+                ),
+                Text(
+                  'Rozsah: $_startFret–${(_startFret + 4).clamp(1, 24)}',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                IconButton(
+                  onPressed: _startFret < 21 ? () => _changeRange(5) : null,
+                  icon: const Icon(Icons.chevron_right),
+                  tooltip: 'Další rozsah',
                 ),
               ],
             ),
@@ -679,7 +746,10 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                 TableRow(
                   children: [
                     const Center(child: Text('Str.')),
-                    ...List.generate(5, (i) => Center(child: Text('${i + 1}'))),
+                    ...List.generate(
+                      _startFret == 21 ? 4 : 5,
+                      (i) => Center(child: Text('${_startFret + i}')),
+                    ),
                   ],
                 ),
                 ...List.generate(6, (sIdx) {
@@ -698,8 +768,8 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                           ),
                         ),
                       ),
-                      ...List.generate(5, (fIdx) {
-                        final fret = fIdx + 1;
+                      ...List.generate(_startFret == 21 ? 4 : 5, (fIdx) {
+                        final fret = _startFret + fIdx;
                         final isPressed = _logic.fingerPositions[sIdx] == fret;
                         
                         return Semantics(
