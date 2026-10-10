@@ -1,3 +1,4 @@
+import 'chord_logic.dart';
 import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
@@ -35,7 +36,8 @@ class SavedChord {
 List<Lesson> myCustomLessons = [
   Lesson(
     title: '1. Jak držet kytaru',
-    content: 'Posaďte se na židli s rovnými zády. Kytaru položte výřezem na pravé stehno. Pravou ruku nechte volně viset přes tělo kytary.',
+    content:
+        'Posaďte se na židli s rovnými zády. Kytaru položte výřezem na pravé stehno. Pravou ruku nechte volně viset přes tělo kytary.',
   ),
 ];
 List<SavedChord> mySavedChords = [];
@@ -49,11 +51,17 @@ class KytarovaUcebniceApp extends StatelessWidget {
       title: 'Kytarová učebnice',
       themeMode: ThemeMode.system,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.brown, brightness: Brightness.light),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.brown,
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.brown, brightness: Brightness.dark),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.brown,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
       ),
       home: const MainMenuPage(),
@@ -80,7 +88,12 @@ class _MainMenuPageState extends State<MainMenuPage> {
             title: const Text('Lekce'),
             subtitle: Text('${myCustomLessons.length} lekcí k dispozici'),
             onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (context) => const LessonsListPage()));
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const LessonsListPage(),
+                ),
+              );
               setState(() {}); // Obnovit po návratu
             },
           ),
@@ -89,7 +102,12 @@ class _MainMenuPageState extends State<MainMenuPage> {
             title: const Text('Editor akordů'),
             subtitle: const Text('Vytvořte si vlastní hmaty'),
             onTap: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (context) => const ChordEditorPage()));
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const ChordEditorPage(),
+                ),
+              );
               setState(() {});
             },
           ),
@@ -97,17 +115,22 @@ class _MainMenuPageState extends State<MainMenuPage> {
             const Divider(),
             const Padding(
               padding: EdgeInsets.all(16.0),
-              child: Text('Uložené akordy', style: TextStyle(fontWeight: FontWeight.bold)),
+              child: Text(
+                'Uložené akordy',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
             ),
-            ...mySavedChords.map((chord) => ListTile(
-              title: Text(chord.name),
-              trailing: const Icon(Icons.volume_up),
-              onTap: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Akord ${chord.name} vybrán.')),
-                );
-              },
-            )),
+            ...mySavedChords.map(
+              (chord) => ListTile(
+                title: Text(chord.name),
+                trailing: const Icon(Icons.volume_up),
+                onTap: () {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Akord ${chord.name} vybrán.')),
+                  );
+                },
+              ),
+            ),
           ],
         ],
       ),
@@ -134,11 +157,17 @@ class _LessonsListPageState extends State<LessonsListPage> {
           final lesson = myCustomLessons[index];
           return ListTile(
             title: Text(lesson.title),
-            subtitle: Text(lesson.content, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              lesson.content,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => LessonDetailPage(lesson: lesson)),
+              MaterialPageRoute(
+                builder: (context) => LessonDetailPage(lesson: lesson),
+              ),
             ),
           );
         },
@@ -146,7 +175,10 @@ class _LessonsListPageState extends State<LessonsListPage> {
       floatingActionButton: FloatingActionButton(
         tooltip: 'Vytvořit novou lekci',
         onPressed: () async {
-          await Navigator.push(context, MaterialPageRoute(builder: (context) => const AddLessonPage()));
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const AddLessonPage()),
+          );
           setState(() {});
         },
         child: const Icon(Icons.add),
@@ -169,7 +201,10 @@ class LessonDetailPage extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(lesson.title, style: Theme.of(context).textTheme.headlineMedium),
+            Text(
+              lesson.title,
+              style: Theme.of(context).textTheme.headlineMedium,
+            ),
             const SizedBox(height: 16),
             Text(lesson.content, style: Theme.of(context).textTheme.bodyLarge),
           ],
@@ -196,7 +231,9 @@ class _AddLessonPageState extends State<AddLessonPage> {
   void initState() {
     super.initState();
     // Automatický fokus na název při otevření
-    WidgetsBinding.instance.addPostFrameCallback((_) => _titleFocusNode.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _titleFocusNode.requestFocus(),
+    );
   }
 
   @override
@@ -234,10 +271,12 @@ class _AddLessonPageState extends State<AddLessonPage> {
                 label: const Text('Uložit lekci'),
                 onPressed: () {
                   if (_titleController.text.isNotEmpty) {
-                    myCustomLessons.add(Lesson(
-                      title: _titleController.text,
-                      content: _contentController.text,
-                    ));
+                    myCustomLessons.add(
+                      Lesson(
+                        title: _titleController.text,
+                        content: _contentController.text,
+                      ),
+                    );
                     Navigator.pop(context);
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('Lekce byla uložena.')),
@@ -267,9 +306,8 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   bool _ttsReady = false;
   bool _midiReady = false;
   String? _midiError;
-  final List<int> _fingerPositions = List.filled(6, -1);
-  final List<String> _stringNames = ['E tlusté', 'A', 'D', 'G', 'H', 'e tenké'];
-  final List<int> _midiBaseNotes = [40, 45, 50, 55, 59, 64];
+  final ChordLogic _logic = ChordLogic();
+  Future<void>? _ttsInitFuture;
 
   @override
   void initState() {
@@ -291,22 +329,42 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   }
 
   Future<void> _initTts() async {
+    _ttsInitFuture ??= _runInitTts();
+    await _ttsInitFuture;
+  }
+
+  Future<void> _runInitTts() async {
     try {
       await _tts.setVolume(1.0);
       await _tts.setSpeechRate(0.5);
       await _tts.setPitch(1.0);
       await _tts.awaitSpeakCompletion(true);
-      
-      // Na Windows isLanguageAvailable neexistuje, zkusíme rovnou setLanguage
+
       if (Platform.isWindows) {
-        await _tts.setLanguage('cs-CZ');
+        final voices = await _tts.getVoices;
+        bool hasCs = false;
+        for (var v in voices) {
+          if (v['locale'] == 'cs-CZ') {
+            await _tts.setVoice({"name": v['name'], "locale": v['locale']});
+            hasCs = true;
+            break;
+          }
+        }
+        if (!hasCs) {
+          debugPrint('TTS: cs-CZ není dostupné.');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Český hlas není dostupný.')),
+            );
+          }
+        }
       } else {
         try {
           final available = await _tts.isLanguageAvailable('cs-CZ');
           if (available) {
             await _tts.setLanguage('cs-CZ');
           } else {
-            debugPrint('TTS: cs-CZ není dostupné, nechávám výchozí hlas.');
+            debugPrint('TTS: cs-CZ není dostupné.');
           }
         } catch (e) {
           debugPrint('TTS jazyk nelze ověřit: $e');
@@ -316,13 +374,23 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     } catch (e) {
       debugPrint('TTS nenastaveno: $e');
       _ttsReady = false;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('TTS chybu: $e')),
+        );
+      }
     }
   }
 
   Future<void> _speakDescription(String text) async {
+    await _initTts();
     if (!_ttsReady) {
-      await _initTts();
-      if (!_ttsReady) return;
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('TTS není připraveno.')),
+        );
+      }
+      return;
     }
     try {
       await _tts.stop();
@@ -386,18 +454,9 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     return e.startsWith('error: ') ? e.substring('error: '.length) : e;
   }
 
-  void _togglePosition(int sIdx, int fret) {
-    setState(() {
-      _fingerPositions[sIdx] = (_fingerPositions[sIdx] == fret) ? -1 : fret;
-    });
-  }
-
   void _setBarre(int fret) {
     setState(() {
-      bool allSet = _fingerPositions.every((p) => p == fret);
-      for (int i = 0; i < 6; i++) {
-        _fingerPositions[i] = allSet ? -1 : fret;
-      }
+      _logic.setBarre(fret);
     });
   }
 
@@ -409,7 +468,10 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Akord nelze přehrát: ${_midiErrorText.isNotEmpty ? _midiErrorText : 'MIDI není připraveno'}')),
+            content: Text(
+              'Akord nelze přehrát: ${_midiErrorText.isNotEmpty ? _midiErrorText : 'MIDI není připraveno'}',
+            ),
+          ),
         );
         return;
       }
@@ -419,16 +481,18 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     ScaffoldMessenger.of(context).clearSnackBars();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-          content: Text('Přehrávám akord...'),
-          duration: Duration(seconds: 1)),
+        content: Text('Přehrávám akord...'),
+        duration: Duration(seconds: 1),
+      ),
     );
 
     final List<int> played = [];
     try {
       for (int i = 0; i < 6; i++) {
-        int fret = _fingerPositions[i];
-        if (fret == -1) continue;
-        final midi = _midiBaseNotes[i] + fret;
+        int fret = _logic.fingerPositions[i];
+        if (fret == -1) continue; // X
+        // Pokud 0, prázdná struna -> fret 0
+        final midi = _logic.midiBaseNotes[i] + (fret == 0 ? 0 : fret);
         final res = await _midiPlay(midi);
         debugPrint('play $midi -> $res');
         if (res == 'not_open' || (res?.startsWith('error') ?? false)) {
@@ -465,38 +529,30 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     }
   }
 
-  String _getChordDescription() {
-    List<String> desc = [];
-    for (int i = 0; i < 6; i++) {
-      String pos = _fingerPositions[i] == -1 ? 'nehraje' : (_fingerPositions[i] == 0 ? 'prázdná' : '${_fingerPositions[i]}. pražec');
-      desc.add('${_stringNames[i]}: $pos');
-    }
-    return desc.join(', ');
-  }
-
   void _readChord() {
-    final text = _getChordDescription();
+    final text = _logic.getChordDescription();
     showDialog(
       context: context,
       builder: (dialogContext) {
-        // Automatické přečtení po získání fokusu dialogu (NVDA/TalkBack
-        // přečte obsah i tak, TTS přidá proaktivní hlas).
-        WidgetsBinding.instance
-            .addPostFrameCallback((_) => _speakDescription(text));
         return AlertDialog(
           title: const Text('Popis hmatu'),
           content: Text(text),
           actions: [
             TextButton(
-                onPressed: () => _speakDescription(text),
-                child: const Text('Přehrát popis')),
-            TextButton(onPressed: () => _tts.stop(), child: const Text('Zastavit')),
+              onPressed: () => _speakDescription(text),
+              child: const Text('Přehrát popis'),
+            ),
             TextButton(
-                onPressed: () {
-                  _tts.stop();
-                  Navigator.pop(dialogContext);
-                },
-                child: const Text('Zavřít')),
+              onPressed: () => _tts.stop(),
+              child: const Text('Zastavit'),
+            ),
+            TextButton(
+              onPressed: () {
+                _tts.stop();
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Zavřít'),
+            ),
           ],
         );
       },
@@ -515,11 +571,16 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
           decoration: const InputDecoration(labelText: 'Název akordu'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Zrušit')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Zrušit'),
+          ),
           ElevatedButton(
             onPressed: () {
               if (controller.text.isNotEmpty) {
-                mySavedChords.add(SavedChord(controller.text, _fingerPositions));
+                mySavedChords.add(
+                  SavedChord(controller.text, _logic.fingerPositions),
+                );
                 Navigator.pop(context);
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Akord byl uložen.')),
@@ -539,9 +600,21 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
       appBar: AppBar(
         title: const Text('Editor akordů'),
         actions: [
-          IconButton(icon: const Icon(Icons.play_arrow), tooltip: 'Přehrát', onPressed: _playChord),
-          IconButton(icon: const Icon(Icons.save), tooltip: 'Uložit', onPressed: _saveChordDialog),
-          IconButton(icon: const Icon(Icons.volume_up), tooltip: 'Popsat', onPressed: _readChord),
+          IconButton(
+            icon: const Icon(Icons.play_arrow),
+            tooltip: 'Přehrát',
+            onPressed: _playChord,
+          ),
+          IconButton(
+            icon: const Icon(Icons.save),
+            tooltip: 'Uložit',
+            onPressed: _saveChordDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.volume_up),
+            tooltip: 'Popsat',
+            onPressed: _readChord,
+          ),
         ],
       ),
       body: SingleChildScrollView(
@@ -557,18 +630,19 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                     padding: const EdgeInsets.all(12),
                     child: Row(
                       children: [
-                        Icon(Icons.volume_off,
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onErrorContainer),
+                        Icon(
+                          Icons.volume_off,
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'Zvuk není dostupný: $_midiErrorText',
                             style: TextStyle(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .onErrorContainer),
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onErrorContainer,
+                            ),
                           ),
                         ),
                       ],
@@ -576,22 +650,32 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   ),
                 ),
               ),
+            // Barré ovládání
+            const Text('Barré:'),
+            Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton(
+                  onPressed: () => _setBarre(-1),
+                  child: const Text('X'),
+                ),
+                ...List.generate(
+                  5,
+                  (fIdx) => OutlinedButton(
+                    onPressed: () => _setBarre(fIdx + 1),
+                    child: Text('${fIdx + 1}'),
+                  ),
+                ),
+              ],
+            ),
+            const Divider(),
+            // Struny
             Table(
-              border: TableBorder.all(color: Theme.of(context).dividerColor.withOpacity(0.5)),
+              border: TableBorder.all(
+                color: Theme.of(context).dividerColor.withOpacity(0.5),
+              ),
               defaultVerticalAlignment: TableCellVerticalAlignment.middle,
               children: [
-                TableRow(
-                  children: [
-                    const Center(child: Text('B')),
-                    ...List.generate(5, (fIdx) => Padding(
-                      padding: const EdgeInsets.all(2.0),
-                      child: OutlinedButton(
-                        onPressed: () => _setBarre(fIdx + 1),
-                        child: Text('${fIdx + 1}'),
-                      ),
-                    )),
-                  ],
-                ),
                 TableRow(
                   children: [
                     const Center(child: Text('Str.')),
@@ -601,33 +685,73 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                 ...List.generate(6, (sIdx) {
                   return TableRow(
                     children: [
-                      Center(child: Text(_stringNames[sIdx].split(' ')[0], style: const TextStyle(fontWeight: FontWeight.bold))),
+                      // První sloupec: Název struny + interakce pro X/O
+                      Semantics(
+                        label:
+                            'Struna ${_logic.stringNames[sIdx]}, aktuální stav: ${_logic.fingerPositions[sIdx] == -1 ? 'nehraje X' : (_logic.fingerPositions[sIdx] == 0 ? 'prázdná O' : 'pražec ${_logic.fingerPositions[sIdx]}')}. Klepněte pro změnu stavu.',
+                        button: true,
+                        child: TextButton(
+                          onPressed: () => _showStatusDialog(sIdx),
+                          child: Text(
+                            '${_logic.stringNames[sIdx].split(' ')[0]} (${_logic.fingerPositions[sIdx] == -1 ? 'X' : (_logic.fingerPositions[sIdx] == 0 ? 'O' : _logic.fingerPositions[sIdx])})',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
                       ...List.generate(5, (fIdx) {
                         final fret = fIdx + 1;
-                        final isPressed = _fingerPositions[sIdx] == fret;
-                        return InkWell(
-                          onTap: () => _togglePosition(sIdx, fret),
-                          child: Semantics(
-                            label: 'Struna ${_stringNames[sIdx]}, pražec $fret',
-                            selected: isPressed,
-                            button: true,
-                            child: Container(
-                              height: 45,
-                              margin: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: isPressed ? Theme.of(context).colorScheme.primary : Colors.transparent,
-                                border: Border.all(color: Theme.of(context).dividerColor.withOpacity(0.1)),
-                              ),
-                              child: isPressed ? Icon(Icons.circle, color: Theme.of(context).colorScheme.onPrimary, size: 14) : null,
-                            ),
+                        final isPressed = _logic.fingerPositions[sIdx] == fret;
+                        return OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: isPressed
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
                           ),
+                          onPressed: () {
+                            setState(() {
+                              _logic.setPosition(
+                                sIdx,
+                                (_logic.fingerPositions[sIdx] == fret)
+                                    ? -1
+                                    : fret,
+                              );
+                            });
+                          },
+                          child: Text('$fret'),
                         );
                       }),
                     ],
                   );
                 }),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showStatusDialog(int sIdx) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Struna ${_logic.stringNames[sIdx]}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('X – nehrát'),
+              onTap: () {
+                setState(() => _logic.setPosition(sIdx, -1));
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              title: const Text('O – prázdná struna'),
+              onTap: () {
+                setState(() => _logic.setPosition(sIdx, 0));
+                Navigator.pop(context);
+              },
             ),
           ],
         ),
