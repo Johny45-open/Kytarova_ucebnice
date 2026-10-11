@@ -157,4 +157,44 @@ void main() {
     await tester.pump();
     expect(dot(), findsNothing);
   });
+
+  testWidgets('Řádky jdou shora od nejtenčí struny (tabulatura)', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: ChordEditorPage()));
+
+    // Vizuální pořadí tlačítek stavu: e, H, G, D, A, E.
+    final statusButtons = tester
+        .widgetList<TextButton>(find.byType(TextButton))
+        .map((b) => (b.child as Text).data!)
+        .toList();
+    expect(statusButtons, [
+      'e (X)',
+      'H (X)',
+      'G (X)',
+      'D (X)',
+      'A (X)',
+      'E (X)',
+    ]);
+
+    // Mapování sedí: pražec v prvním řádku patří tenké e (index 5).
+    Finder fretBtn(String label) => find.ancestor(
+      of: find.byWidgetPredicate(
+        (w) => w is Text && w.semanticsLabel == label,
+      ),
+      matching: find.byType(OutlinedButton),
+    );
+    expect(
+      fretBtn('Struna e tenké, pražec 1, nevybráno'),
+      findsOneWidget,
+    );
+    await tester.tap(
+      fretBtn('Struna e tenké, pražec 1, nevybráno'),
+    );
+    await tester.pump();
+    expect(
+      fretBtn('Struna e tenké, pražec 1, vybráno'),
+      findsOneWidget,
+    );
+  });
 }

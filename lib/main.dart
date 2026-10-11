@@ -775,7 +775,11 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                     ),
                   ],
                 ),
-                ...List.generate(6, (sIdx) {
+                // Řádky shora dolů od nejtenčí po nejtlustší (tabulatura:
+                // e nahoře, E dole). Mapuje se jen zobrazení, data
+                // (fingerPositions, MIDI, popisy) zůstávají 0=E … 5=e.
+                ...List.generate(6, (row) {
+                  final sIdx = 5 - row;
                   return TableRow(
                     children: [
                       // První sloupec: jedno standardní tlačítko. Plný label
