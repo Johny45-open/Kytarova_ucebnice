@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'services/chord_storage.dart';
+import 'services/feedback.dart';
 import 'services/midi_player.dart';
 import 'services/tts_service.dart';
 
@@ -38,6 +39,18 @@ List<Lesson> myCustomLessons = [
   ),
 ];
 List<SavedChord> mySavedChords = [];
+List<ChordFolder> myChordFolders = [];
+
+/// Uloží celou knihovnu (složky + akordy). Nikdy nepadá, jen zaloguje.
+Future<void> persistLibrary() async {
+  try {
+    await ChordStorage().saveLibrary(
+      ChordLibrary(folders: myChordFolders, chords: mySavedChords),
+    );
+  } catch (e) {
+    debugPrint('Uložení knihovny selhalo: $e');
+  }
+}
 
 class KytarovaUcebniceApp extends StatelessWidget {
   const KytarovaUcebniceApp({super.key});
@@ -91,8 +104,11 @@ class _MainMenuPageState extends State<MainMenuPage> {
 
   Future<void> _loadChords() async {
     try {
-      mySavedChords = await ChordStorage().load();
+      final library = await ChordStorage().loadLibrary();
+      myChordFolders = library.folders;
+      mySavedChords = library.chords;
     } catch (_) {
+      myChordFolders = [];
       mySavedChords = [];
     }
     if (mounted) setState(() => _chordsLoading = false);
@@ -146,9 +162,9 @@ class _MainMenuPageState extends State<MainMenuPage> {
             subtitle: Text(
               _chordsLoading
                   ? 'Načítám…'
-                  : mySavedChords.isEmpty
+                  : mySavedChords.isEmpty && myChordFolders.isEmpty
                   ? 'Zatím žádné uložené akordy'
-                  : '${mySavedChords.length} ${_chordCountWord(mySavedChords.length)} k dispozici',
+                  : _librarySubtitle(),
             ),
             trailing: const Icon(Icons.chevron_right),
             onTap: _openSavedChords,
@@ -162,6 +178,20 @@ class _MainMenuPageState extends State<MainMenuPage> {
     if (n == 1) return 'akord';
     if (n >= 2 && n <= 4) return 'akordy';
     return 'akordů';
+  }
+
+  String _folderCountWord(int n) {
+    if (n == 1) return 'složka';
+    if (n >= 2 && n <= 4) return 'složky';
+    return 'složek';
+  }
+
+  String _librarySubtitle() {
+    final c = mySavedChords.length;
+    final f = myChordFolders.length;
+    final chords = '$c ${_chordCountWord(c)}';
+    if (f == 0) return '$chords k dispozici';
+    return '$chords v $f ${_folderCountWord(f)}';
   }
 }
 
@@ -371,9 +401,11 @@ class _AddLessonPageState extends State<AddLessonPage> {
 
 /// Stránka pro tvorbu vlastních akordů.
 /// [initial] = načtený uložený akord k úpravě; null = nový hmat.
+/// [folderId] = složka pro nový akord (z detailu složky); null = Bez složky.
 class ChordEditorPage extends StatefulWidget {
   final SavedChord? initial;
-  const ChordEditorPage({super.key, this.initial});
+  final String? folderId;
+  const ChordEditorPage({super.key, this.initial, this.folderId});
 
   @override
   State<ChordEditorPage> createState() => _ChordEditorPageState();
@@ -602,18 +634,17 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         widget.initial!.name = name;
         widget.initial!.positions.setAll(0, _logic.fingerPositions);
       } else {
-        mySavedChords.add(SavedChord(name, _logic.fingerPositions));
+        mySavedChords.add(
+          SavedChord(
+            name,
+            _logic.fingerPositions,
+            folderId: widget.folderId,
+          ),
+        );
       }
-      try {
-        await ChordStorage().save(mySavedChords);
-      } catch (e) {
-        debugPrint('Uložení selhalo: $e');
-      }
+      await persistLibrary();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Akord $name byl uložen.')),
-      );
+      await showFeedback(context, 'Akord $name byl uložen.');
     });
   }
 
@@ -875,23 +906,246 @@ class SavedChordsPage extends StatefulWidget {
   State<SavedChordsPage> createState() => _SavedChordsPageState();
 }
 
-class _SavedChordsPageState extends State<SavedChordsPage> {
+class _SavedChordsPageState extends State<SavedChordsPage>
+    with ChordActions<SavedChordsPage> {
+  @override
+  void dispose() {
+    disposeActions();
+    super.dispose();
+  }
+
+  Future<void> _openFolder(ChordFolder folder) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => FolderDetailPage(folder: folder)),
+    );
+    await persistLibrary();
+    if (mounted) setState(() {});
+  }
+
+  void _createFolder() {
+    final forbidden = myChordFolders.map((f) => f.name).toSet();
+    showDialog<String>(
+      context: context,
+      builder: (_) => _ChordNameDialog(
+        title: 'Nová složka',
+        label: 'Název složky',
+        confirmLabel: 'Vytvořit',
+        initial: '',
+        forbiddenNames: forbidden,
+        emptyErrorText: 'Zadejte název složky',
+        duplicateErrorText: 'Tato složka už existuje',
+      ),
+    ).then((name) async {
+      if (name == null) return;
+      myChordFolders.add(
+        ChordFolder(id: ChordStorage.newFolderId(), name: name),
+      );
+      await persistLibrary();
+      if (!mounted) return;
+      setState(() {});
+      await showFeedback(context, 'Složka $name vytvořena.');
+    });
+  }
+
+  void _renameFolder(ChordFolder folder) {
+    final forbidden =
+        myChordFolders.where((f) => f != folder).map((f) => f.name).toSet();
+    final oldName = folder.name;
+    showDialog<String>(
+      context: context,
+      builder: (_) => _ChordNameDialog(
+        title: 'Přejmenovat složku $oldName',
+        label: 'Nový název složky',
+        confirmLabel: 'Přejmenovat',
+        initial: oldName,
+        forbiddenNames: forbidden,
+        emptyErrorText: 'Zadejte název složky',
+        duplicateErrorText: 'Tato složka už existuje',
+      ),
+    ).then((name) async {
+      if (name == null) return;
+      folder.name = name;
+      await persistLibrary();
+      if (!mounted) return;
+      setState(() {});
+      await showFeedback(context, 'Složka přejmenována na $name.');
+    });
+  }
+
+  void _deleteFolder(ChordFolder folder) {
+    final name = folder.name;
+    final count =
+        mySavedChords.where((c) => c.folderId == folder.id).length;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Smazat složku $name?'),
+        content: Text(
+          count == 0
+              ? 'Složka je prázdná.'
+              : 'Složka obsahuje $count ${pluralCs(count, 'akord', 'akordy', 'akordů')}. Akordy zůstanou v Bez složky.',
+        ),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Zrušit'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              myChordFolders.remove(folder);
+              for (final c in mySavedChords) {
+                if (c.folderId == folder.id) c.folderId = null;
+              }
+              await persistLibrary();
+              if (!mounted) return;
+              setState(() {});
+              await showFeedback(
+                context,
+                'Složka $name smazána. Akordy zůstaly v Bez složky.',
+              );
+            },
+            child: const Text('Smazat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final folders = myChordFolders;
+    final unfiled =
+        mySavedChords.where((c) => c.folderId == null).toList();
+    final isEmpty = folders.isEmpty && mySavedChords.isEmpty;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Uložené akordy'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.create_new_folder),
+            tooltip: 'Vytvořit složku',
+            onPressed: _createFolder,
+          ),
+        ],
+      ),
+      body: isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Zatím nemáte žádné uložené akordy.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.music_note),
+                      label: const Text('Otevřít editor akordů'),
+                      onPressed: () => _openNewChord(),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.create_new_folder),
+                      label: const Text('Vytvořit složku'),
+                      onPressed: _createFolder,
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : ListView(
+              children: [
+                if (folders.isNotEmpty) ...[
+                  const _SectionHeader('Složky'),
+                  ...folders.map(_folderTile),
+                ],
+                if (unfiled.isNotEmpty) ...[
+                  const _SectionHeader('Bez složky'),
+                  ...unfiled.map(
+                    (chord) => ChordTile(
+                      chord: chord,
+                      playing: _playing,
+                      onOpen: () => _openForEdit(chord),
+                      onPlay: () => _playChord(chord),
+                      onDescribe: () => _describe(chord),
+                      onRename: () => _renameChord(chord),
+                      onMove: () => _moveChord(chord),
+                      onDelete: () => _deleteChord(chord),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+    );
+  }
+
+  Widget _folderTile(ChordFolder folder) {
+    final count =
+        mySavedChords.where((c) => c.folderId == folder.id).length;
+    final countText = '$count ${pluralCs(count, 'akord', 'akordy', 'akordů')}';
+    return ListTile(
+      leading: const Icon(Icons.folder),
+      title: Text(folder.name),
+      subtitle: Text(
+        countText,
+        semanticsLabel: 'Složka ${folder.name}, $countText',
+      ),
+      onTap: () => _openFolder(folder),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Přejmenovat složku ${folder.name}',
+            onPressed: () => _renameFolder(folder),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete),
+            tooltip: 'Smazat složku ${folder.name}',
+            onPressed: () => _deleteFolder(folder),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nadpis sekce v seznamu (složky / bez složky). `header: true` umožní
+/// čtečce navigovat po nadpisech.
+
+/// České skloňování podle počtu: 1 akord, 2–4 akordy, 5+ akordů.
+String pluralCs(int n, String one, String few, String many) {
+  if (n == 1) return one;
+  if (n >= 2 && n <= 4) return few;
+  return many;
+}
+
+/// Sdílené akce nad akordem pro seznam i detail složky:
+/// otevření v editoru, přehrání, popis, přejmenování, přesun, smazání.
+/// Všechna potvrzení jdou přes showFeedback (SnackBar + announce čtečce).
+mixin ChordActions<T extends StatefulWidget> on State<T> {
   final MidiChordPlayer _midi = MidiChordPlayer();
   final TtsService _tts = TtsService();
   bool _playing = false;
 
-  @override
-  void dispose() {
+  void disposeActions() {
     _tts.stop();
-    super.dispose();
   }
 
-  Future<void> _persist() async {
-    try {
-      await ChordStorage().save(mySavedChords);
-    } catch (e) {
-      debugPrint('Uložení akordů selhalo: $e');
-    }
+  Future<void> _openNewChord({String? folderId}) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ChordEditorPage(folderId: folderId),
+      ),
+    );
+    await persistLibrary();
+    if (mounted) setState(() {});
   }
 
   Future<void> _openForEdit(SavedChord chord) async {
@@ -899,11 +1153,11 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
       context,
       MaterialPageRoute(builder: (_) => ChordEditorPage(initial: chord)),
     );
-    await _persist();
+    await persistLibrary();
     if (mounted) setState(() {});
   }
 
-  Future<void> _play(SavedChord chord) async {
+  Future<void> _playChord(SavedChord chord) async {
     if (_playing) return;
     setState(() => _playing = true);
     try {
@@ -912,32 +1166,23 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
       );
       if (!ok) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).clearSnackBars();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Akord ${chord.name} nelze přehrát: ${_midi.errorText.isNotEmpty ? _midi.errorText : 'MIDI není připraveno'}',
-            ),
-          ),
+        await showFeedback(
+          context,
+          'Akord ${chord.name} nelze přehrát: ${_midi.errorText.isNotEmpty ? _midi.errorText : 'MIDI není připraveno'}',
         );
         return;
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Přehrávám ${chord.name}…'),
-          duration: const Duration(seconds: 1),
-        ),
-      );
+      await showFeedback(context, 'Přehrávám akord ${chord.name}…');
       await _midi.playPositions(
         chord.positions,
         ChordLogic().midiBaseNotes,
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Akord ${chord.name} nelze přehrát: $e')),
+      await showFeedback(
+        context,
+        'Akord ${chord.name} nelze přehrát: $e',
       );
     } finally {
       if (mounted) setState(() => _playing = false);
@@ -948,7 +1193,7 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
     _tts.speak('${chord.name}. ${chord.fullDescription}');
   }
 
-  void _rename(SavedChord chord) {
+  void _renameChord(SavedChord chord) {
     final forbidden = mySavedChords
         .where((c) => c != chord)
         .map((c) => c.name)
@@ -966,17 +1211,14 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
     ).then((name) async {
       if (name == null) return;
       chord.name = name;
-      await _persist();
+      await persistLibrary();
       if (!mounted) return;
       setState(() {});
-      ScaffoldMessenger.of(context).clearSnackBars();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Akord přejmenován na $name.')),
-      );
+      await showFeedback(context, 'Akord přejmenován na $name.');
     });
   }
 
-  void _delete(SavedChord chord) {
+  void _deleteChord(SavedChord chord) {
     final name = chord.name;
     final desc = chord.fullDescription;
     showDialog(
@@ -994,13 +1236,10 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
             onPressed: () async {
               Navigator.pop(dialogContext);
               mySavedChords.remove(chord);
-              await _persist();
+              await persistLibrary();
               if (!mounted) return;
               setState(() {});
-              ScaffoldMessenger.of(context).clearSnackBars();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Akord $name smazán.')),
-              );
+              await showFeedback(context, 'Akord $name smazán.');
             },
             child: const Text('Smazat'),
           ),
@@ -1009,82 +1248,216 @@ class _SavedChordsPageState extends State<SavedChordsPage> {
     );
   }
 
+  /// Přesun akordu do složky. Nativní RadioListTile (Tab + šipky +
+  /// ohlášení stavu zdarma); šipka rovnou vybírá a zavírá. Prázdný
+  /// řetězec = Bez složky (null by splývalo se zrušením dialogu).
+  void _moveChord(SavedChord chord) {
+    final folders = List<ChordFolder>.from(myChordFolders);
+    showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Přesunout akord ${chord.name} do složky'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: RadioGroup<String>(
+              groupValue: chord.folderId ?? '',
+              onChanged: (v) {
+                if (v == null) return;
+                Navigator.pop(dialogContext, v);
+              },
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const RadioListTile<String>(
+                    title: Text('Bez složky'),
+                    value: '',
+                  ),
+                  for (final f in folders)
+                    RadioListTile<String>(
+                      title: Text(f.name),
+                      value: f.id,
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Zrušit'),
+          ),
+        ],
+      ),
+    ).then((value) async {
+      if (value == null) return; // zrušeno křížkem / šipkou zpět
+      final target = value.isEmpty ? null : value;
+      if (target == chord.folderId) return; // beze změny → ticho
+      chord.folderId = target;
+      await persistLibrary();
+      if (!mounted) return;
+      setState(() {});
+      var where = 'Bez složky';
+      for (final f in folders) {
+        if (f.id == target) where = f.name;
+      }
+      await showFeedback(
+        context,
+        'Akord ${chord.name} přesunut do $where.',
+      );
+    });
+  }
+}
+
+/// Jeden řádek akordu: jméno + hmat pro čtečku, akce Přehrát / Popsat /
+/// Přesunout / Přejmenovat / Smazat. Použito v seznamu i detailu složky.
+class ChordTile extends StatelessWidget {
+  final SavedChord chord;
+  final bool playing;
+  final VoidCallback onOpen;
+  final VoidCallback onPlay;
+  final VoidCallback onDescribe;
+  final VoidCallback onRename;
+  final VoidCallback onMove;
+  final VoidCallback onDelete;
+  const ChordTile({
+    super.key,
+    required this.chord,
+    required this.playing,
+    required this.onOpen,
+    required this.onPlay,
+    required this.onDescribe,
+    required this.onRename,
+    required this.onMove,
+    required this.onDelete,
+  });
+
   @override
   Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(chord.name),
+      // Subtitle nese hmat; čtečka přečte plný text i při
+      // zkrácení na 2 řádky. SemanticsLabel dává věty.
+      subtitle: Text(
+        chord.shortDescription,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        semanticsLabel: chord.fullDescription,
+      ),
+      onTap: onOpen,
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.play_arrow),
+            tooltip: 'Přehrát akord ${chord.name}',
+            onPressed: playing ? null : onPlay,
+          ),
+          IconButton(
+            icon: const Icon(Icons.description),
+            tooltip: 'Popsat hmat ${chord.name}',
+            onPressed: onDescribe,
+          ),
+          IconButton(
+            icon: const Icon(Icons.drive_file_move),
+            tooltip: 'Přesunout akord ${chord.name} do složky',
+            onPressed: onMove,
+          ),
+          IconButton(
+            icon: const Icon(Icons.edit),
+            tooltip: 'Přejmenovat akord ${chord.name}',
+            onPressed: onRename,
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete),
+            tooltip: 'Smazat akord ${chord.name}',
+            onPressed: onDelete,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Detail složky: akordy v ní + nový akord rovnou do složky.
+class FolderDetailPage extends StatefulWidget {
+  final ChordFolder folder;
+  const FolderDetailPage({super.key, required this.folder});
+
+  @override
+  State<FolderDetailPage> createState() => _FolderDetailPageState();
+}
+
+class _FolderDetailPageState extends State<FolderDetailPage>
+    with ChordActions<FolderDetailPage> {
+  @override
+  void dispose() {
+    disposeActions();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final chords =
+        mySavedChords.where((c) => c.folderId == widget.folder.id).toList();
     return Scaffold(
-      appBar: AppBar(title: const Text('Uložené akordy')),
-      body: mySavedChords.isEmpty
-          ? Center(
+      appBar: AppBar(
+        title: Text(widget.folder.name),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add),
+            tooltip: 'Nový akord do složky ${widget.folder.name}',
+            onPressed: () => _openNewChord(folderId: widget.folder.id),
+          ),
+        ],
+      ),
+      body: chords.isEmpty
+          ? const Center(
               child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text(
-                      'Zatím nemáte žádné uložené akordy.',
-                      textAlign: TextAlign.center,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.music_note),
-                      label: const Text('Otevřít editor akordů'),
-                      onPressed: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => const ChordEditorPage(),
-                          ),
-                        );
-                        if (mounted) setState(() {});
-                      },
-                    ),
-                  ],
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'Složka je prázdná. Nový hmat do ní přidáte tlačítkem plus nahoře.',
+                  textAlign: TextAlign.center,
                 ),
               ),
             )
           : ListView.builder(
-              itemCount: mySavedChords.length,
+              itemCount: chords.length,
               itemBuilder: (context, index) {
-                final chord = mySavedChords[index];
-                return ListTile(
-                  title: Text(chord.name),
-                  // Subtitle nese hmat; čtečka přečte plný text i při
-                  // zkrácení na 2 řádky. SemanticsLabel dává věty.
-                  subtitle: Text(
-                    chord.shortDescription,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    semanticsLabel: chord.fullDescription,
-                  ),
-                  onTap: () => _openForEdit(chord),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.play_arrow),
-                        tooltip: 'Přehrát akord ${chord.name}',
-                        onPressed: _playing ? null : () => _play(chord),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.description),
-                        tooltip: 'Popsat hmat ${chord.name}',
-                        onPressed: () => _describe(chord),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.edit),
-                        tooltip: 'Přejmenovat akord ${chord.name}',
-                        onPressed: () => _rename(chord),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.delete),
-                        tooltip: 'Smazat akord ${chord.name}',
-                        onPressed: () => _delete(chord),
-                      ),
-                    ],
-                  ),
+                final chord = chords[index];
+                return ChordTile(
+                  chord: chord,
+                  playing: _playing,
+                  onOpen: () => _openForEdit(chord),
+                  onPlay: () => _playChord(chord),
+                  onDescribe: () => _describe(chord),
+                  onRename: () => _renameChord(chord),
+                  onMove: () => _moveChord(chord),
+                  onDelete: () => _deleteChord(chord),
                 );
               },
             ),
+    );
+  }
+}
+
+class _SectionHeader extends StatelessWidget {
+  final String text;
+  const _SectionHeader(this.text);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Semantics(
+        header: true,
+        child: Text(
+          text,
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+      ),
     );
   }
 }
@@ -1099,12 +1472,16 @@ class _ChordNameDialog extends StatefulWidget {
   final String confirmLabel;
   final String initial;
   final Set<String> forbiddenNames;
+  final String emptyErrorText;
+  final String duplicateErrorText;
   const _ChordNameDialog({
     required this.title,
     required this.label,
     required this.confirmLabel,
     required this.initial,
     required this.forbiddenNames,
+    this.emptyErrorText = 'Zadejte název akordu',
+    this.duplicateErrorText = 'Tento název už existuje',
   });
 
   @override
@@ -1130,11 +1507,11 @@ class _ChordNameDialogState extends State<_ChordNameDialog> {
   void _confirm() {
     final n = _controller.text.trim();
     if (n.isEmpty) {
-      setState(() => _error = 'Zadejte název akordu');
+      setState(() => _error = widget.emptyErrorText);
       return;
     }
     if (widget.forbiddenNames.contains(n)) {
-      setState(() => _error = 'Tento název už existuje');
+      setState(() => _error = widget.duplicateErrorText);
       return;
     }
     Navigator.of(context).pop(n);

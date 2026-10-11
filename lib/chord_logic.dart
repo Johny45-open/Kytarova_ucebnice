@@ -74,12 +74,19 @@ class ChordLogic {
 }
 
 /// Uložený akord s persistencí (JSON) a přístupným popisem.
+/// [folderId] = id složky, null = „Bez složky".
 class SavedChord {
   String name;
   final List<int> positions;
-  SavedChord(this.name, List<int> pos) : positions = List.from(pos);
+  String? folderId;
+  SavedChord(this.name, List<int> pos, {this.folderId})
+    : positions = List.from(pos);
 
-  Map<String, dynamic> toJson() => {'name': name, 'positions': List.of(positions)};
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'positions': List.of(positions),
+    if (folderId != null) 'folderId': folderId,
+  };
 
   factory SavedChord.fromJson(Map<String, dynamic> json) {
     final name = (json['name'] ?? '').toString();
@@ -89,7 +96,12 @@ class SavedChord {
     while (pos.length < 6) {
       pos.add(-1);
     }
-    return SavedChord(name, pos.sublist(0, 6));
+    final folderRaw = json['folderId'];
+    return SavedChord(
+      name,
+      pos.sublist(0, 6),
+      folderId: folderRaw is String && folderRaw.isNotEmpty ? folderRaw : null,
+    );
   }
 
   /// Krátký popis hmatu pro subtitle.
@@ -97,4 +109,20 @@ class SavedChord {
 
   /// Plný popis pro screen reader.
   String get fullDescription => ChordLogic.fullDescription(positions);
+}
+
+/// Složka pro uložené akordy (jedna rovina, bez podsložek).
+class ChordFolder {
+  final String id;
+  String name;
+  ChordFolder({required this.id, required this.name});
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name};
+
+  factory ChordFolder.fromJson(Map<String, dynamic> json) {
+    return ChordFolder(
+      id: (json['id'] ?? '').toString(),
+      name: (json['name'] ?? '').toString(),
+    );
+  }
 }
