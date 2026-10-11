@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_midi/flutter_midi.dart';
 import 'package:flutter_midi/flutter_midi_windows.dart';
 import 'services/tts_service.dart';
@@ -49,6 +50,13 @@ class KytarovaUcebniceApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Kytarová učebnice',
+      locale: const Locale('cs'),
+      supportedLocales: const [Locale('cs')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       themeMode: ThemeMode.system,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -340,17 +348,15 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   bool _midiReady = false;
   String? _midiError;
   final ChordLogic _logic = ChordLogic();
+  static const int _visibleFrets = 7;
+  static const int _maxStartFret = 24 - _visibleFrets + 1; // 18
   int _startFret = 1;
 
   void _changeRange(int delta) {
     setState(() {
-      _startFret = (_startFret + delta).clamp(1, 21);
-      // Zarovnání na začátky rozsahů (1, 6, 11, 16, 21)
-      if (_startFret > 1) {
-         _startFret = (((_startFret - 1) / 5).floor() * 5) + 1;
-      } else {
-         _startFret = 1;
-      }
+      // Volný posun po 1 pražci, aby šly vedle sebe zobrazit např.
+      // pražce 5–8 (G dur hmatem D dur: 5, 7, 8, 7).
+      _startFret = (_startFret + delta).clamp(1, _maxStartFret);
     });
   }
 
@@ -460,6 +466,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         ),
         actions: [
           TextButton(
+            autofocus: true,
             onPressed: () => Navigator.pop(context),
             child: const Text('Zrušit'),
           ),
@@ -563,6 +570,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                 _tts.stop();
                 Navigator.pop(dialogContext);
               },
+              autofocus: true,
               child: const Text('Zavřít'),
             ),
           ],
@@ -686,18 +694,19 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 IconButton(
-                  onPressed: _startFret > 1 ? () => _changeRange(-5) : null,
+                  onPressed: _startFret > 1 ? () => _changeRange(-1) : null,
                   icon: const Icon(Icons.chevron_left),
-                  tooltip: 'Předchozí rozsah',
+                  tooltip: 'Předchozí pražec',
                 ),
                 Text(
-                  'Rozsah: $_startFret–${(_startFret + 4).clamp(1, 24)}',
+                  'Rozsah: $_startFret–${_startFret + _visibleFrets - 1}',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 IconButton(
-                  onPressed: _startFret < 21 ? () => _changeRange(5) : null,
+                  onPressed:
+                      _startFret < _maxStartFret ? () => _changeRange(1) : null,
                   icon: const Icon(Icons.chevron_right),
-                  tooltip: 'Další rozsah',
+                  tooltip: 'Další pražec',
                 ),
               ],
             ),
@@ -713,7 +722,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   children: [
                     const Center(child: Text('Str.')),
                     ...List.generate(
-                      _startFret == 21 ? 4 : 5,
+                      _visibleFrets,
                       (i) => Center(child: Text('${_startFret + i}')),
                     ),
                   ],
@@ -721,27 +730,37 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                 ...List.generate(6, (sIdx) {
                   return TableRow(
                     children: [
-                      // První sloupec: Název struny + interakce pro X/O
-                      Semantics(
-                        label:
-                            'Struna ${_logic.stringNames[sIdx]}, aktuální stav: ${_logic.fingerPositions[sIdx] == -1 ? 'nehraje X' : (_logic.fingerPositions[sIdx] == 0 ? 'prázdná O' : 'pražec ${_logic.fingerPositions[sIdx]}')}. Klepněte pro změnu stavu.',
-                        button: true,
-                        child: TextButton(
-                          onPressed: () => _showStatusDialog(sIdx),
-                          child: Text(
-                            '${_logic.stringNames[sIdx].split(' ')[0]} (${_logic.fingerPositions[sIdx] == -1 ? 'X' : (_logic.fingerPositions[sIdx] == 0 ? 'O' : _logic.fingerPositions[sIdx])})',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                      // První sloupec: jedno standardní tlačítko. Plný label
+                      // přes Text.semanticsLabel, žádný Semantics wrapper.
+                      TextButton(
+                        onPressed: () => _showStatusDialog(sIdx),
+                        child: Text(
+                          '${_logic.stringNames[sIdx].split(' ')[0]} (${_logic.fingerPositions[sIdx] == -1 ? 'X' : (_logic.fingerPositions[sIdx] == 0 ? 'O' : _logic.fingerPositions[sIdx])})',
+                          semanticsLabel:
+                              'Struna ${_logic.stringNames[sIdx]}, aktuální stav: ${_logic.fingerPositions[sIdx] == -1 ? 'nehraje X' : (_logic.fingerPositions[sIdx] == 0 ? 'prázdná O' : 'pražec ${_logic.fingerPositions[sIdx]}')}. Klepněte pro změnu stavu.',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
-                      ...List.generate(_startFret == 21 ? 4 : 5, (fIdx) {
+                      ...List.generate(_visibleFrets, (fIdx) {
                         final fret = _startFret + fIdx;
                         final isPressed = _logic.fingerPositions[sIdx] == fret;
-                        
-                        return Semantics(
-                          label: 'Struna ${_logic.stringNames[sIdx]}, pražec $fret, ${isPressed ? "vybráno" : "nevybráno"}',
-                          button: true,
-                          onTap: () {
+
+                        // Jedno standardní tlačítko (návrat k osvědčenému
+                        // vzoru z dřívější verze): Tab + Enter/Mezerník +
+                        // focus ring + čtečka zdarma. Plný label přes
+                        // Text.semanticsLabel, stav přes pozadí + puntík.
+                        // Žádný Semantics wrapper ani InkWell.
+                        return OutlinedButton(
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: isPressed
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : null,
+                            minimumSize: const Size(48, 40),
+                            padding: EdgeInsets.zero,
+                            tapTargetSize:
+                                MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () {
                             setState(() {
                               _logic.setPosition(
                                 sIdx,
@@ -751,36 +770,24 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                               );
                             });
                           },
-                          child: InkWell(
-                            onTap: () {
-                              setState(() {
-                                _logic.setPosition(
-                                  sIdx,
-                                  (_logic.fingerPositions[sIdx] == fret)
-                                      ? -1
-                                      : fret,
-                                );
-                              });
-                            },
-                            child: Container(
-                              height: 40,
-                              alignment: Alignment.center,
-                              child: Stack(
-                                alignment: Alignment.center,
-                                children: [
-                                  Text('$fret'),
-                                  if (isPressed)
-                                    Container(
-                                      width: 12,
-                                      height: 12,
-                                      decoration: BoxDecoration(
-                                        shape: BoxShape.circle,
-                                        color: Theme.of(context).colorScheme.primary,
-                                      ),
-                                    ),
-                                ],
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              Text(
+                                '$fret',
+                                semanticsLabel:
+                                    'Struna ${_logic.stringNames[sIdx]}, pražec $fret, ${isPressed ? "vybráno" : "nevybráno"}',
                               ),
-                            ),
+                              if (isPressed)
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: Theme.of(context).colorScheme.primary,
+                                  ),
+                                ),
+                            ],
                           ),
                         );
                       }),
@@ -800,25 +807,37 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
       context: context,
       builder: (context) => AlertDialog(
         title: Text('Struna ${_logic.stringNames[sIdx]}'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              title: const Text('X – nehrát'),
-              onTap: () {
-                setState(() => _logic.setPosition(sIdx, -1));
-                Navigator.pop(context);
-              },
-            ),
-            ListTile(
-              title: const Text('O – prázdná struna'),
-              onTap: () {
-                setState(() => _logic.setPosition(sIdx, 0));
-                Navigator.pop(context);
-              },
-            ),
-          ],
+        content: RadioGroup<int>(
+          groupValue: _logic.fingerPositions[sIdx],
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() => _logic.setPosition(sIdx, v));
+            Navigator.pop(context);
+          },
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Nativní přepínače: Tab + šipky/Mezerník + focus ring +
+              // ohlášení stavu čtečkou zdarma. ListTile s onTap by Tab
+              // přeskočil (staví na InkWell).
+              RadioListTile<int>(
+                title: Text('X – nehrát'),
+                value: -1,
+              ),
+              RadioListTile<int>(
+                title: Text('O – prázdná struna'),
+                value: 0,
+              ),
+            ],
+          ),
         ),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Zrušit'),
+          ),
+        ],
       ),
     );
   }
