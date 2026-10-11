@@ -4,8 +4,8 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:flutter_midi/flutter_midi.dart';
-import 'package:flutter_midi/flutter_midi_windows.dart';
+import 'services/chord_storage.dart';
+import 'services/midi_player.dart';
 import 'services/tts_service.dart';
 
 void main() {
@@ -26,12 +26,8 @@ class Lesson {
   Lesson({required this.title, required this.content});
 }
 
-/// Model pro uložený akord
-class SavedChord {
-  final String name;
-  final List<int> positions;
-  SavedChord(this.name, List<int> pos) : positions = List.from(pos);
-}
+// SavedChord žije v chord_logic.dart (JSON + popis pro čtečku).
+// Re-export pro zpětnou kompatibilitu testů importujících main.dart.
 
 /// Globální úložiště dat (pro ukázku)
 List<Lesson> myCustomLessons = [
@@ -85,6 +81,31 @@ class MainMenuPage extends StatefulWidget {
 }
 
 class _MainMenuPageState extends State<MainMenuPage> {
+  bool _chordsLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadChords();
+  }
+
+  Future<void> _loadChords() async {
+    try {
+      mySavedChords = await ChordStorage().load();
+    } catch (_) {
+      mySavedChords = [];
+    }
+    if (mounted) setState(() => _chordsLoading = false);
+  }
+
+  Future<void> _openSavedChords() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SavedChordsPage()),
+    );
+    if (mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -119,30 +140,28 @@ class _MainMenuPageState extends State<MainMenuPage> {
               setState(() {});
             },
           ),
-          if (mySavedChords.isNotEmpty) ...[
-            const Divider(),
-            const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Text(
-                'Uložené akordy',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
+          ListTile(
+            leading: const Icon(Icons.library_music),
+            title: const Text('Uložené akordy'),
+            subtitle: Text(
+              _chordsLoading
+                  ? 'Načítám…'
+                  : mySavedChords.isEmpty
+                  ? 'Zatím žádné uložené akordy'
+                  : '${mySavedChords.length} ${_chordCountWord(mySavedChords.length)} k dispozici',
             ),
-            ...mySavedChords.map(
-              (chord) => ListTile(
-                title: Text(chord.name),
-                trailing: const Icon(Icons.volume_up),
-                onTap: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Akord ${chord.name} vybrán.')),
-                  );
-                },
-              ),
-            ),
-          ],
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openSavedChords,
+          ),
         ],
       ),
     );
+  }
+
+  String _chordCountWord(int n) {
+    if (n == 1) return 'akord';
+    if (n >= 2 && n <= 4) return 'akordy';
+    return 'akordů';
   }
 }
 
@@ -268,6 +287,7 @@ class _AddLessonPageState extends State<AddLessonPage> {
   final _titleController = TextEditingController();
   final _contentController = TextEditingController();
   final _titleFocusNode = FocusNode();
+  String? _titleError;
 
   @override
   void initState() {
@@ -276,6 +296,30 @@ class _AddLessonPageState extends State<AddLessonPage> {
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => _titleFocusNode.requestFocus(),
     );
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _contentController.dispose();
+    _titleFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      // Chyba zůstane v errorText -> čtečka ji přečte, dialog se nezavře.
+      setState(() => _titleError = 'Zadejte název lekce');
+      _titleFocusNode.requestFocus();
+      return;
+    }
+    myCustomLessons.add(
+      Lesson(title: title, content: _contentController.text),
+    );
+    Navigator.pop(context);
+    // SnackBar se ukáže až na předchozí stránce; context této stránky
+    // je po popu mrtvý, proto hlášku nezobrazujeme zde.
   }
 
   @override
@@ -289,11 +333,15 @@ class _AddLessonPageState extends State<AddLessonPage> {
             TextField(
               controller: _titleController,
               focusNode: _titleFocusNode,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Název lekce',
-                border: OutlineInputBorder(),
+                errorText: _titleError,
+                border: const OutlineInputBorder(),
               ),
               textInputAction: TextInputAction.next,
+              onChanged: (_) {
+                if (_titleError != null) setState(() => _titleError = null);
+              },
             ),
             const SizedBox(height: 16),
             TextField(
@@ -311,20 +359,7 @@ class _AddLessonPageState extends State<AddLessonPage> {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.save),
                 label: const Text('Uložit lekci'),
-                onPressed: () {
-                  if (_titleController.text.isNotEmpty) {
-                    myCustomLessons.add(
-                      Lesson(
-                        title: _titleController.text,
-                        content: _contentController.text,
-                      ),
-                    );
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Lekce byla uložena.')),
-                    );
-                  }
-                },
+                onPressed: _save,
               ),
             ),
           ],
@@ -334,19 +369,21 @@ class _AddLessonPageState extends State<AddLessonPage> {
   }
 }
 
-/// Stránka pro tvorbu vlastních akordů
+/// Stránka pro tvorbu vlastních akordů.
+/// [initial] = načtený uložený akord k úpravě; null = nový hmat.
 class ChordEditorPage extends StatefulWidget {
-  const ChordEditorPage({super.key});
+  final SavedChord? initial;
+  const ChordEditorPage({super.key, this.initial});
 
   @override
   State<ChordEditorPage> createState() => _ChordEditorPageState();
 }
 
 class _ChordEditorPageState extends State<ChordEditorPage> {
-  final _flutterMidi = FlutterMidi();
+  final MidiChordPlayer _midi = MidiChordPlayer();
   final TtsService _tts = TtsService();
-  bool _midiReady = false;
-  String? _midiError;
+  bool get _midiReady => _midi.ready;
+  String? get _midiError => _midi.error?.toString();
   final ChordLogic _logic = ChordLogic();
   static const int _visibleFrets = 7;
   static const int _maxStartFret = 24 - _visibleFrets + 1; // 18
@@ -363,6 +400,23 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.initial != null) {
+      for (int i = 0; i < 6; i++) {
+        _logic.fingerPositions[i] = widget.initial!.positions[i];
+      }
+      // Pokud je hmat mimo výchozí výřez, posunout výřez na první hmat.
+      final pressed = _logic.fingerPositions
+          .where((p) => p > 0)
+          .toList();
+      if (pressed.isNotEmpty) {
+        final minFret = pressed.reduce((a, b) => a < b ? a : b);
+        _startFret = minFret.clamp(1, _maxStartFret);
+        // Aby byl celý hmat vidět, když začíná nad 1.
+        if (_startFret > 1 && _startFret + _visibleFrets - 1 < pressed.reduce((a,b)=>a>b?a:b)) {
+          _startFret = (pressed.reduce((a,b)=>a>b?a:b) - _visibleFrets + 1).clamp(1, _maxStartFret);
+        }
+      }
+    }
     // MIDI start až po prvním framu: _setupMidi sahá na stav a dřív
     // zobrazoval SnackBar během push-transition, což na Windows padalo
     // na "Null check operator used on a null value" ve frameworku.
@@ -379,47 +433,11 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
 
   Future<void> _speakDescription(String text) => _tts.speak(text);
 
-  /// Na Windows volá winmm FFI napřímo (MethodChannel tam nemá nativní
-  /// protistranu a končil by vždy MissingPluginException). Na ostatních
-  /// platformách jde přes MethodChannel + sf2 soubor.
-  Future<String?> _midiPrepare(ByteData sf2) {
-    if (Platform.isWindows) return FlutterMidiWindowsPlugin.openOut();
-    return _flutterMidi.prepare(sf2: sf2, name: 'guitar.sf2');
-  }
-
-  Future<String?> _midiPlay(int midi) {
-    if (Platform.isWindows) return FlutterMidiWindowsPlugin.playNote(midi);
-    return _flutterMidi.playMidiNote(midi: midi);
-  }
-
-  Future<String?> _midiStop(int midi) {
-    if (Platform.isWindows) return FlutterMidiWindowsPlugin.stopNote(midi);
-    return _flutterMidi.stopMidiNote(midi: midi);
-  }
-
   Future<void> _setupMidi() async {
-    try {
-      String? res;
-      if (Platform.isWindows) {
-        // winmm nepotřebuje sf2, stačí otevřít MIDI mapper.
-        // sf2 asset se nenačítá, aby chyba v balíčku neblokovala zvuk.
-        res = await FlutterMidiWindowsPlugin.openOut();
-      } else {
-        ByteData byte = await rootBundle.load('assets/guitar.sf2');
-        res = await _midiPrepare(byte);
-      }
-      debugPrint('MIDI prepare: $res');
-      _midiReady = (res == 'ok');
-      _midiError = _midiReady ? null : res;
-    } on MissingPluginException catch (e) {
-      _midiReady = false;
-      _midiError = 'MIDI plugin není registrován: $e';
-      debugPrint(_midiError);
-    } catch (e) {
-      _midiReady = false;
-      _midiError = e.toString();
-      debugPrint('MIDI nenastaveno: $e');
-    }
+    final ok = await _midi.ensureReady(
+      loadSf2: Platform.isWindows ? null : () => rootBundle.load('assets/guitar.sf2'),
+    );
+    if (!ok) debugPrint('MIDI nenastaveno: ${_midi.error}');
     // Žádný SnackBar při otevření stránky (padal framework během
     // transition). Chyba se ukáže jako inline pruh ve stránce (viz build)
     // a SnackBar až po explicitním tapnutí na Přehrát. Jen překreslit.
@@ -427,11 +445,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   }
 
   /// Chyba bez strohého prefixu 'error: ' pro zobrazení uživateli.
-  String get _midiErrorText {
-    final e = _midiError;
-    if (e == null) return '';
-    return e.startsWith('error: ') ? e.substring('error: '.length) : e;
-  }
+  String get _midiErrorText => _midi.errorText;
 
   void _setBarre(int fret) {
     setState(() {
@@ -459,7 +473,10 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   _setBarre(fret);
                   Navigator.pop(context);
                 },
-                child: Text('$fret'),
+                child: Text(
+                  '$fret',
+                  semanticsLabel: 'Barré pražec $fret',
+                ),
               );
             },
           ),
@@ -501,45 +518,28 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
       ),
     );
 
-    final List<int> played = [];
     try {
-      for (int i = 0; i < 6; i++) {
-        int fret = _logic.fingerPositions[i];
-        if (fret == -1) continue; // X
-        // Pokud 0, prázdná struna -> fret 0
-        final midi = _logic.midiBaseNotes[i] + (fret == 0 ? 0 : fret);
-        final res = await _midiPlay(midi);
-        debugPrint('play $midi -> $res');
-        if (res == 'not_open' || (res?.startsWith('error') ?? false)) {
-          throw Exception(res);
-        }
-        played.add(midi);
-        await Future.delayed(const Duration(milliseconds: 120));
-      }
-      await Future.delayed(const Duration(milliseconds: 600));
+      await _midi.playPositions(
+        _logic.fingerPositions,
+        _logic.midiBaseNotes,
+      );
     } on MissingPluginException catch (e) {
-      _midiReady = false;
-      _midiError = 'MIDI plugin není registrován: $e';
+      _midi.ready = false;
+      _midi.error = 'MIDI plugin není registrován: $e';
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Akord nelze přehrát: $_midiError')),
+          SnackBar(content: Text('Akord nelze přehrát: ${_midi.error}')),
         );
       }
     } catch (e) {
-      _midiReady = false;
-      _midiError = e.toString();
+      _midi.ready = false;
+      _midi.error = e.toString();
       if (mounted) {
         setState(() {});
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Akord nelze přehrát: $_midiErrorText')),
         );
-      }
-    } finally {
-      for (final m in played) {
-        try {
-          await _midiStop(m);
-        } catch (_) {}
       }
     }
   }
@@ -551,7 +551,8 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Popis hmatu'),
-          content: Text(text),
+          // SelectableText je Tab-fokusovatelný, čtečka ho přečte celá.
+          content: SelectableText(text),
           actions: [
             TextButton(
               onPressed: () {
@@ -582,45 +583,48 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   }
 
   void _saveChordDialog() {
-    final TextEditingController controller = TextEditingController();
-    showDialog(
+    final forbidden = mySavedChords
+        .where((c) => c != widget.initial)
+        .map((c) => c.name)
+        .toSet();
+    showDialog<String>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Uložit akord'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Název akordu'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Zrušit'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (controller.text.isNotEmpty) {
-                mySavedChords.add(
-                  SavedChord(controller.text, _logic.fingerPositions),
-                );
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Akord byl uložen.')),
-                );
-              }
-            },
-            child: const Text('Uložit'),
-          ),
-        ],
+      builder: (_) => _ChordNameDialog(
+        title: 'Uložit akord',
+        label: 'Název akordu',
+        confirmLabel: 'Uložit',
+        initial: widget.initial?.name ?? '',
+        forbiddenNames: forbidden,
       ),
-    );
+    ).then((name) async {
+      if (name == null) return;
+      if (widget.initial != null) {
+        widget.initial!.name = name;
+        widget.initial!.positions.setAll(0, _logic.fingerPositions);
+      } else {
+        mySavedChords.add(SavedChord(name, _logic.fingerPositions));
+      }
+      try {
+        await ChordStorage().save(mySavedChords);
+      } catch (e) {
+        debugPrint('Uložení selhalo: $e');
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Akord $name byl uložen.')),
+      );
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final editingName = widget.initial?.name;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Editor akordů'),
+        title: Text(
+          editingName == null ? 'Editor akordů' : 'Úprava: $editingName',
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.play_arrow),
@@ -652,9 +656,13 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                     padding: const EdgeInsets.all(12),
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.volume_off,
-                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ExcludeSemantics(
+                          child: Icon(
+                            Icons.volume_off,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onErrorContainer,
+                          ),
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -698,9 +706,12 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   icon: const Icon(Icons.chevron_left),
                   tooltip: 'Předchozí pražec',
                 ),
-                Text(
-                  'Rozsah: $_startFret–${_startFret + _visibleFrets - 1}',
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    'Rozsah: $_startFret–${_startFret + _visibleFrets - 1}',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
                 IconButton(
                   onPressed:
@@ -711,8 +722,14 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
               ],
             ),
             const Divider(),
-            // Struny
-            Table(
+            // Struny – horizontální scroll pro velké písmo / malé displeje.
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minWidth: MediaQuery.of(context).size.width - 32,
+                ),
+                child: Table(
               border: TableBorder.all(
                 color: Theme.of(context).dividerColor.withOpacity(0.5),
               ),
@@ -755,7 +772,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                             backgroundColor: isPressed
                                 ? Theme.of(context).colorScheme.primaryContainer
                                 : null,
-                            minimumSize: const Size(48, 40),
+                            minimumSize: const Size(48, 48),
                             padding: EdgeInsets.zero,
                             tapTargetSize:
                                 MaterialTapTargetSize.shrinkWrap,
@@ -779,12 +796,16 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                                     'Struna ${_logic.stringNames[sIdx]}, pražec $fret, ${isPressed ? "vybráno" : "nevybráno"}',
                               ),
                               if (isPressed)
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Theme.of(context).colorScheme.primary,
+                                ExcludeSemantics(
+                                  child: Container(
+                                    width: 12,
+                                    height: 12,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: Theme.of(
+                                        context,
+                                      ).colorScheme.primary,
+                                    ),
                                   ),
                                 ),
                             ],
@@ -795,6 +816,8 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
                   );
                 }),
               ],
+                ),
+              ),
             ),
           ],
         ),
@@ -839,6 +862,311 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Seznam uložených akordů: načtení do editoru, přehrání, přejmenování,
+/// smazání. Každý řádek má plný popis hmatu pro čtečku.
+class SavedChordsPage extends StatefulWidget {
+  const SavedChordsPage({super.key});
+
+  @override
+  State<SavedChordsPage> createState() => _SavedChordsPageState();
+}
+
+class _SavedChordsPageState extends State<SavedChordsPage> {
+  final MidiChordPlayer _midi = MidiChordPlayer();
+  final TtsService _tts = TtsService();
+  bool _playing = false;
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _persist() async {
+    try {
+      await ChordStorage().save(mySavedChords);
+    } catch (e) {
+      debugPrint('Uložení akordů selhalo: $e');
+    }
+  }
+
+  Future<void> _openForEdit(SavedChord chord) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ChordEditorPage(initial: chord)),
+    );
+    await _persist();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _play(SavedChord chord) async {
+    if (_playing) return;
+    setState(() => _playing = true);
+    try {
+      final ok = await _midi.ensureReady(
+        loadSf2: Platform.isWindows ? null : () => rootBundle.load('assets/guitar.sf2'),
+      );
+      if (!ok) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).clearSnackBars();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Akord ${chord.name} nelze přehrát: ${_midi.errorText.isNotEmpty ? _midi.errorText : 'MIDI není připraveno'}',
+            ),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Přehrávám ${chord.name}…'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+      await _midi.playPositions(
+        chord.positions,
+        ChordLogic().midiBaseNotes,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Akord ${chord.name} nelze přehrát: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _playing = false);
+    }
+  }
+
+  void _describe(SavedChord chord) {
+    _tts.speak('${chord.name}. ${chord.fullDescription}');
+  }
+
+  void _rename(SavedChord chord) {
+    final forbidden = mySavedChords
+        .where((c) => c != chord)
+        .map((c) => c.name)
+        .toSet();
+    final oldName = chord.name;
+    showDialog<String>(
+      context: context,
+      builder: (_) => _ChordNameDialog(
+        title: 'Přejmenovat akord $oldName',
+        label: 'Nový název akordu',
+        confirmLabel: 'Přejmenovat',
+        initial: oldName,
+        forbiddenNames: forbidden,
+      ),
+    ).then((name) async {
+      if (name == null) return;
+      chord.name = name;
+      await _persist();
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Akord přejmenován na $name.')),
+      );
+    });
+  }
+
+  void _delete(SavedChord chord) {
+    final name = chord.name;
+    final desc = chord.fullDescription;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Smazat $name?'),
+        content: Text('Hmat: $desc'),
+        actions: [
+          TextButton(
+            autofocus: true,
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Zrušit'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              mySavedChords.remove(chord);
+              await _persist();
+              if (!mounted) return;
+              setState(() {});
+              ScaffoldMessenger.of(context).clearSnackBars();
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Akord $name smazán.')),
+              );
+            },
+            child: const Text('Smazat'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Uložené akordy')),
+      body: mySavedChords.isEmpty
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Zatím nemáte žádné uložené akordy.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      icon: const Icon(Icons.music_note),
+                      label: const Text('Otevřít editor akordů'),
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ChordEditorPage(),
+                          ),
+                        );
+                        if (mounted) setState(() {});
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            )
+          : ListView.builder(
+              itemCount: mySavedChords.length,
+              itemBuilder: (context, index) {
+                final chord = mySavedChords[index];
+                return ListTile(
+                  title: Text(chord.name),
+                  // Subtitle nese hmat; čtečka přečte plný text i při
+                  // zkrácení na 2 řádky. SemanticsLabel dává věty.
+                  subtitle: Text(
+                    chord.shortDescription,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    semanticsLabel: chord.fullDescription,
+                  ),
+                  onTap: () => _openForEdit(chord),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.play_arrow),
+                        tooltip: 'Přehrát akord ${chord.name}',
+                        onPressed: _playing ? null : () => _play(chord),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.description),
+                        tooltip: 'Popsat hmat ${chord.name}',
+                        onPressed: () => _describe(chord),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.edit),
+                        tooltip: 'Přejmenovat akord ${chord.name}',
+                        onPressed: () => _rename(chord),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete),
+                        tooltip: 'Smazat akord ${chord.name}',
+                        onPressed: () => _delete(chord),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+/// Sdílený dialog pro zadání názvu akordu (uložení i přejmenování).
+/// Vlastní controller (vytvořen v initState, zrušen v dispose), takže
+/// přežije i zavírací animaci dialogu. Vrací očištěný název, nebo null
+/// při zrušení. Chyby hlásí přes errorText, který čtečka přečte.
+class _ChordNameDialog extends StatefulWidget {
+  final String title;
+  final String label;
+  final String confirmLabel;
+  final String initial;
+  final Set<String> forbiddenNames;
+  const _ChordNameDialog({
+    required this.title,
+    required this.label,
+    required this.confirmLabel,
+    required this.initial,
+    required this.forbiddenNames,
+  });
+
+  @override
+  State<_ChordNameDialog> createState() => _ChordNameDialogState();
+}
+
+class _ChordNameDialogState extends State<_ChordNameDialog> {
+  late final TextEditingController _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initial);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    final n = _controller.text.trim();
+    if (n.isEmpty) {
+      setState(() => _error = 'Zadejte název akordu');
+      return;
+    }
+    if (widget.forbiddenNames.contains(n)) {
+      setState(() => _error = 'Tento název už existuje');
+      return;
+    }
+    Navigator.of(context).pop(n);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          errorText: _error,
+        ),
+        textInputAction: TextInputAction.done,
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
+        onSubmitted: (_) => _confirm(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Zrušit'),
+        ),
+        ElevatedButton(
+          onPressed: _confirm,
+          child: Text(widget.confirmLabel),
+        ),
+      ],
     );
   }
 }
