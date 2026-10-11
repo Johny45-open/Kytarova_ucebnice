@@ -619,6 +619,11 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         .where((c) => c != widget.initial)
         .map((c) => c.name)
         .toSet();
+    String? folderName;
+    for (final f in myChordFolders) {
+      if (f.id == widget.folderId) folderName = f.name;
+    }
+    final destName = folderName ?? 'Bez složky';
     showDialog<String>(
       context: context,
       builder: (_) => _ChordNameDialog(
@@ -627,6 +632,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
         confirmLabel: 'Uložit',
         initial: widget.initial?.name ?? '',
         forbiddenNames: forbidden,
+        destinationLabel: 'Uloží se do: $destName',
       ),
     ).then((name) async {
       if (name == null) return;
@@ -644,7 +650,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
       }
       await persistLibrary();
       if (!mounted) return;
-      await showFeedback(context, 'Akord $name byl uložen.');
+      await showFeedback(context, 'Akord $name byl uložen do $destName.');
     });
   }
 
@@ -1478,6 +1484,7 @@ class _ChordNameDialog extends StatefulWidget {
   final Set<String> forbiddenNames;
   final String emptyErrorText;
   final String duplicateErrorText;
+  final String? destinationLabel;
   const _ChordNameDialog({
     required this.title,
     required this.label,
@@ -1486,6 +1493,7 @@ class _ChordNameDialog extends StatefulWidget {
     required this.forbiddenNames,
     this.emptyErrorText = 'Zadejte název akordu',
     this.duplicateErrorText = 'Tento název už existuje',
+    this.destinationLabel,
   });
 
   @override
@@ -1525,18 +1533,28 @@ class _ChordNameDialogState extends State<_ChordNameDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.title),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: widget.label,
-          errorText: _error,
-        ),
-        textInputAction: TextInputAction.done,
-        onChanged: (_) {
-          if (_error != null) setState(() => _error = null);
-        },
-        onSubmitted: (_) => _confirm(),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.destinationLabel != null) ...[
+            Text(widget.destinationLabel!),
+            const SizedBox(height: 12),
+          ],
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            decoration: InputDecoration(
+              labelText: widget.label,
+              errorText: _error,
+            ),
+            textInputAction: TextInputAction.done,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            onSubmitted: (_) => _confirm(),
+          ),
+        ],
       ),
       actions: [
         TextButton(

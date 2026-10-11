@@ -172,4 +172,55 @@ void main() {
       );
     });
   });
+
+  group('Uložení z editoru ukazuje složku', () {
+    testWidgets('Editor ze složky: dialog i hláška nesou její jméno', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: ChordEditorPage(folderId: 'rock')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Uložit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Uložit akord'), findsOneWidget);
+      expect(find.text('Uloží se do: Rock'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'A');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Uložit'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Akord A byl uložen do Rock.'),
+        findsOneWidget,
+      );
+      expect(
+        mySavedChords.firstWhere((c) => c.name == 'A').folderId,
+        'rock',
+      );
+    });
+
+    testWidgets('Generický editor: ukládá do Bez složky', (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: ChordEditorPage()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Uložit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Uloží se do: Bez složky'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField), 'D');
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Uložit'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Akord D byl uložen do Bez složky.'),
+        findsOneWidget,
+      );
+      expect(
+        mySavedChords.firstWhere((c) => c.name == 'D').folderId,
+        isNull,
+      );
+    });
+  });
 }
