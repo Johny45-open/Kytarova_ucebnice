@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_midi/flutter_midi.dart';
 import 'package:flutter_midi/flutter_midi_windows.dart';
-import 'package:flutter_tts/flutter_tts.dart';
+import 'services/tts_service.dart';
 
 void main() {
   // Musí být první: inicializuje ServicesBinding/BinaryMessenger,
@@ -187,26 +187,60 @@ class _LessonsListPageState extends State<LessonsListPage> {
   }
 }
 
-/// Detail lekce
-class LessonDetailPage extends StatelessWidget {
+/// Detail lekce s hlasovým předčítáním (TtsService).
+class LessonDetailPage extends StatefulWidget {
   final Lesson lesson;
   const LessonDetailPage({super.key, required this.lesson});
 
   @override
+  State<LessonDetailPage> createState() => _LessonDetailPageState();
+}
+
+class _LessonDetailPageState extends State<LessonDetailPage> {
+  final TtsService _tts = TtsService();
+
+  @override
+  void dispose() {
+    _tts.stop();
+    super.dispose();
+  }
+
+  Future<void> _readLesson() async {
+    await _tts.speak('${widget.lesson.title}. ${widget.lesson.content}');
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(lesson.title)),
+      appBar: AppBar(
+        title: Text(widget.lesson.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.volume_up),
+            tooltip: 'Přečíst lekci',
+            onPressed: _readLesson,
+          ),
+          IconButton(
+            icon: const Icon(Icons.stop),
+            tooltip: 'Zastavit čtení',
+            onPressed: _tts.stop,
+          ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              lesson.title,
+              widget.lesson.title,
               style: Theme.of(context).textTheme.headlineMedium,
             ),
             const SizedBox(height: 16),
-            Text(lesson.content, style: Theme.of(context).textTheme.bodyLarge),
+            Text(
+              widget.lesson.content,
+              style: Theme.of(context).textTheme.bodyLarge,
+            ),
           ],
         ),
       ),
@@ -302,12 +336,10 @@ class ChordEditorPage extends StatefulWidget {
 
 class _ChordEditorPageState extends State<ChordEditorPage> {
   final _flutterMidi = FlutterMidi();
-  late final FlutterTts _tts;
-  bool _ttsReady = false;
+  final TtsService _tts = TtsService();
   bool _midiReady = false;
   String? _midiError;
   final ChordLogic _logic = ChordLogic();
-  Future<void>? _ttsInitFuture;
   int _startFret = 1;
 
   void _changeRange(int delta) {
@@ -325,8 +357,6 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
   @override
   void initState() {
     super.initState();
-    _tts = FlutterTts();
-    _initTts();
     // MIDI start až po prvním framu: _setupMidi sahá na stav a dřív
     // zobrazoval SnackBar během push-transition, což na Windows padalo
     // na "Null check operator used on a null value" ve frameworku.
@@ -341,77 +371,7 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
     super.dispose();
   }
 
-  Future<void> _initTts() async {
-    _ttsInitFuture ??= _runInitTts();
-    await _ttsInitFuture;
-  }
-
-  Future<void> _runInitTts() async {
-    try {
-      await _tts.setVolume(1.0);
-      await _tts.setSpeechRate(0.5);
-      await _tts.setPitch(1.0);
-      await _tts.awaitSpeakCompletion(true);
-
-      if (Platform.isWindows) {
-        final voices = await _tts.getVoices;
-        bool hasCs = false;
-        for (var v in voices) {
-          if (v['locale'] == 'cs-CZ') {
-            await _tts.setVoice({"name": v['name'], "locale": v['locale']});
-            hasCs = true;
-            break;
-          }
-        }
-        if (!hasCs) {
-          debugPrint('TTS: cs-CZ není dostupné.');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Český hlas není dostupný.')),
-            );
-          }
-        }
-      } else {
-        try {
-          final available = await _tts.isLanguageAvailable('cs-CZ');
-          if (available) {
-            await _tts.setLanguage('cs-CZ');
-          } else {
-            debugPrint('TTS: cs-CZ není dostupné.');
-          }
-        } catch (e) {
-          debugPrint('TTS jazyk nelze ověřit: $e');
-        }
-      }
-      _ttsReady = true;
-    } catch (e) {
-      debugPrint('TTS nenastaveno: $e');
-      _ttsReady = false;
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('TTS chybu: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _speakDescription(String text) async {
-    await _initTts();
-    if (!_ttsReady) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('TTS není připraveno.')),
-        );
-      }
-      return;
-    }
-    try {
-      await _tts.stop();
-      await _tts.speak(text);
-    } catch (e) {
-      debugPrint('TTS speak selhalo: $e');
-    }
-  }
+  Future<void> _speakDescription(String text) => _tts.speak(text);
 
   /// Na Windows volá winmm FFI napřímo (MethodChannel tam nemá nativní
   /// protistranu a končil by vždy MissingPluginException). Na ostatních
@@ -587,11 +547,15 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
           content: Text(text),
           actions: [
             TextButton(
-              onPressed: () => _speakDescription(text),
+              onPressed: () {
+                _speakDescription(text);
+              },
               child: const Text('Přehrát popis'),
             ),
             TextButton(
-              onPressed: () => _tts.stop(),
+              onPressed: () {
+                _tts.stop();
+              },
               child: const Text('Zastavit'),
             ),
             TextButton(
@@ -604,7 +568,9 @@ class _ChordEditorPageState extends State<ChordEditorPage> {
           ],
         );
       },
-    ).then((_) => _tts.stop());
+    ).then((_) {
+      _tts.stop();
+    });
   }
 
   void _saveChordDialog() {
